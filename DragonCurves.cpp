@@ -14,16 +14,17 @@ using namespace glm;
 
 const char* vertexShaderSource = "#version 330 core\n"
 "layout (location = 0) in vec2 aPos;\n"
+"uniform mat4 transform;\n"
 "void main()\n"
 "{\n"
-"   gl_Position = vec4(aPos.x, aPos.y, gl_Position = vec4(aPos,0.0,1.0);, 1.0);\n"
+"   gl_Position = transform * vec4(aPos, 0.0, 1.0);\n"
 "}\0";
 
 const char* fragmentShaderSource = "#version 330 core\n"
 "out vec4 FragColor;\n"
 "void main()\n"
 "{\n"
-"   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
+"   FragColor = vec4(1.0f, 1.0f, 1.0f, 1.0f);\n"
 "}\0";
 
 struct Size {
@@ -122,8 +123,10 @@ int main()
     glViewport(0, 0, 2560, 1440); //the usable space in the window
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); //registers the resize function
 
-    vector<float> line = {-0.002f, 0.0f, 0.002f, 0.0f}; //the starting line hehe
+    vector<float> line = {-0.025f, 0.0f, 0.025f, 0.0f}; //the starting line hehe
     unsigned int shaderProgram = assembleShaders(); 
+    float zoom = 1.0f;
+    float currentLimit = 1.0f;
 
     unsigned int VAO;
     glGenVertexArrays(1, &VAO); //assigns pointer for vao object
@@ -140,14 +143,10 @@ int main()
     {
         processInput(window);
 
-        mat4 transform(1.0f); //create new matrix for transforms
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f); //reset
+        glClear(GL_COLOR_BUFFER_BIT);
 
-        Size size = trackSize(line);
-        if (size.width > 1.0f || size.height > 1.0f) {
-            glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            //transform = scale(transform, glm::vec3(0.5, 0.5, 0.5));
-        }
+        mat4 transform(1.0f); //create new matrix for transforms
         vector<float> clone; 
         for (int i = line.size() - 4; i >= 0; i -= 2) //copies line into clone except for the last point
         {
@@ -171,6 +170,19 @@ int main()
             clone[i] = p.x; //updates the clone data with the new position
             clone[i + 1] = p.y;
         }
+        Size size = trackSize(line);
+        if (size.width > currentLimit || size.height > currentLimit)
+        {
+            zoom *= 0.5f;
+            currentLimit *= 2.0f; 
+        }
+        mat4 view(1.0f);
+        view = scale(view, vec3(zoom, zoom, 1.0f));
+        glUseProgram(shaderProgram);
+
+        unsigned int transformLoc = glGetUniformLocation(shaderProgram, "transform");
+
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, value_ptr(view));
 
         line.insert(line.end(), clone.begin(), clone.end()); //appends clone to existing vector
 
