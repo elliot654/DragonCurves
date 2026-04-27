@@ -27,11 +27,6 @@ const char* fragmentShaderSource = "#version 330 core\n"
 "   FragColor = vec4(1.0f, 1.0f, 1.0f, 1.0f);\n"
 "}\0";
 
-struct Size {
-    float width;
-    float height;
-};
-
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) //resizes the window
 {
     glViewport(0, 0, width, height);
@@ -84,23 +79,6 @@ unsigned int assembleShaders() {
     return shaderProgram;
 }
 
-Size trackSize(vector<float> line) {
-    float minX = line[0];
-    float maxX = line[0];
-    float minY = line[1];
-    float maxY = line[1];
-    for (int i = 2; i < line.size(); i+=2) {
-        if (line[i] > maxX) maxX = line[i];
-        if (line[i] < minX) minX = line[i];
-        if (line[i+1] > maxY) maxY = line[i+1];
-        if (line[i+1] < minY) minY = line[i+1];
-    }
-    Size size;
-    size.width = maxX - minX;
-    size.height = maxY - minY;
-    return size;
-}
-
 int main()
 {
     glfwInit(); //start glfw (the os handler to make windows)
@@ -124,6 +102,12 @@ int main()
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); //registers the resize function
 
     vector<float> line = {-0.025f, 0.0f, 0.025f, 0.0f}; //the starting line hehe
+    line.reserve(1 << 22); //reserves space to stop reallocation on interation
+    float minX = -0.015f;
+    float maxX = 0.015f;
+    float minY = 0.0f;
+    float maxY = 0.0f;
+    vector<float> clone;
     unsigned int shaderProgram = assembleShaders(); 
     float zoom = 1.0f;
     float currentLimit = 1.0f;
@@ -138,16 +122,17 @@ int main()
     glBufferData(GL_ARRAY_BUFFER, line.size() * sizeof(float), line.data(), GL_STATIC_DRAW);//fill the buffer with line data
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0); //instruct opengl on how to interpret the vertex data in the buffer and applys the vao
     glEnableVertexAttribArray(0);
+    glEnable(GL_LINE_SMOOTH);
 
     while (!glfwWindowShouldClose(window)) //main loop checks for exit commands
     {
         processInput(window);
-
+        clone.clear();
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f); //reset
         glClear(GL_COLOR_BUFFER_BIT);
 
         mat4 transform(1.0f); //create new matrix for transforms
-        vector<float> clone; 
+        
         for (int i = line.size() - 4; i >= 0; i -= 2) //copies line into clone except for the last point
         {
             clone.push_back(line[i]);
@@ -161,20 +146,20 @@ int main()
         transform = rotate(transform, radians(90.0f), vec3(0, 0, 1)); //does rotation
         transform = translate(transform, vec3(-px, -py, 0.0f)); //returns to origin (otherwise the first would add a bias of that distance each iteration)
 
-        for (int i = 0; i < clone.size(); i += 2) //each point in clone
+        for (size_t i = 0; i < clone.size(); i += 2)
         {
-            vec4 p(clone[i], clone[i + 1], 0.0f, 1.0f); //build a vector from the points data
+            vec4 p(clone[i], clone[i + 1], 0.0f, 1.0f);
 
-            p = transform * p; //performs the transform 
+            p = transform * p;
 
-            clone[i] = p.x; //updates the clone data with the new position
+            clone[i] = p.x;
             clone[i + 1] = p.y;
-        }
-        Size size = trackSize(line);
-        if (size.width > currentLimit || size.height > currentLimit)
-        {
-            zoom *= 0.5f;
-            currentLimit *= 2.0f; 
+
+            // Incrementally update bounds
+            minX = glm::min(minX, p.x);
+            maxX = glm::max(maxX, p.x);
+            minY = glm::min(minY, p.y);
+            maxY = glm::max(maxY, p.y);
         }
         mat4 view(1.0f);
         view = scale(view, vec3(zoom, zoom, 1.0f));
@@ -185,6 +170,15 @@ int main()
         glUniformMatrix4fv(transformLoc, 1, GL_FALSE, value_ptr(view));
 
         line.insert(line.end(), clone.begin(), clone.end()); //appends clone to existing vector
+
+        float width = maxX - minX;
+        float height = maxY - minY;
+
+        if (width > currentLimit || height > currentLimit)
+        {
+            zoom *= 0.5f;
+            currentLimit *= 2.0f;
+        }
 
         glBufferData(GL_ARRAY_BUFFER, line.size() * sizeof(float), line.data(), GL_DYNAMIC_DRAW); //the line data has changed so the buffer needs to be updated
         glDrawArrays( GL_LINE_STRIP,0,line.size() / 2); //draw the line data
